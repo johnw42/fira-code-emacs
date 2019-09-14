@@ -13,21 +13,24 @@ URL = https://github.com/tonsky/FiraCode/releases/download/2/$(ZIP_FILE)
 all: $(EMACS_FONTS)
 
 clean:
-	rm -f $(ZIP_FILE) demo.txt fontTools-stamp
+	rm -f $(ZIP_FILE) fontTools-stamp
 	rm -rf original modified
+
+distclean:
+	rm -rf fira-code-data.el
 
 modified/FiraEmacs-%.otf: original/otf/FiraCode-%.otf build_fira_emacs.py fontTools-stamp
 	mkdir -p modified
-	python3 build_fira_emacs.py $< $@ demo.txt
+	python3 build_fira_emacs.py $< $@ fira-code-data.el
 
 fontTools-stamp:
-	pip3 install fontTools
+	pip3 install --user fontTools
 	touch $@
 
 $(ZIP_FILE):
 	curl -L -o $@ $(URL)
 
 original/otf/FiraCode-%.otf: $(ZIP_FILE)
-	unzip $(ZIP_FILE) otf/FiraCode-$*.otf -d original
+	unzip -f $(ZIP_FILE) otf/FiraCode-$*.otf -d original
 	touch $@
 

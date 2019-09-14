@@ -3,8 +3,18 @@
 from fontTools.ttLib import TTFont
 import io
 import os
+import re
 import sys
 import xml.etree.ElementTree as ET
+
+
+def ElispLiteral(s):
+    return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+class Glyph:
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
 
 
 def Main():
@@ -41,46 +51,52 @@ def Main():
     # This list will be populated with tuples of (glyph name, code point, input string)
     # representing how strings are converted to ligatures and which code point the
     # ligature glyph is assigned to.
-    ligatures = []
+    output_glyphs = []
+
+    # Look at every glyph, picking out the ones that look like ligatures.
+    for glyph in glyph_order:
+        input_string = None
+        m = re.match(r"([^.]+)\.(.*)$", glyph)
+        if m:
+            # We assume the name of a ligature glyph is formed from the names of
+            # the component glyphs separated by underscores.
+            parts = m[1].split("_")
+            if all(p in inv_cmap for p in parts):
+                input_string = "".join(inv_cmap[p] for p in parts)
+                output_glyphs.append(
+                    Glyph(name=glyph, input_string=input_string, suffix=m[2])
+                )
+
+    output_glyphs.sort(key=lambda g: (g.input_string, g.suffix))
 
     # Start with 0xE100 instead of 0xE000 because for some reason the original
     # font already assigns some glyphs in the private-use area.
     code_point = 0xE100
-
-    # Look at every glyph, picking out the ones that look like ligatures.
-    for glyph in glyph_order:
-        if glyph.endswith(".liga"):
-            # We assume the name of a ligature glyph is formed from the names of
-            # the component glyphs separated by underscores.
-            parts = glyph[:-5].split("_")
-            input_string = "".join(inv_cmap[part] for part in parts)
-            ligatures.append((glyph, code_point, input_string))
-            code_point += 1
+    for g in output_glyphs:
+        g.code_point = code_point
+        code_point += 1
 
     # Echo the list of strings which can be pasted into fira-code.el to update it.
     fill_column = 70
-    elisp_indent = "   "
-    elisp_lines = [elisp_indent]
-    for _, _, input_string in ligatures:
-        literal = ' "' + input_string.replace("\\", "\\\\").replace('"', '\\"') + '"'
-        if len(literal) + len(elisp_lines[-1]) > fill_column:
-            elisp_lines.append(elisp_indent)
-        elisp_lines[-1] += literal
-    print("Paste this code into the definition of fira-code--ligatures:")
-    for line in elisp_lines:
-        print(line)
+    prefix = ""
+    with open("fira-code-data.el", "wt") as data_stream:
+        data_stream.write(";; -*- coding: utf-8 -*-\n(defconst fira-code--data\n  '(")
+        for g in output_glyphs:
+            line = prefix + '[{} {} "\\{}"]  ;   {}'.format(
+                ElispLiteral(g.name),
+                ElispLiteral(g.input_string),
+                hex(g.code_point)[1:],
+                chr(g.code_point),
+            )
+            prefix = "    "
+            data_stream.write(line + "\n")
+        data_stream.write("))\n")
 
-    # Write the demo file, which can be loaded in Emacs to verify that ligatures are
-    # displayed correctly.
-    with open(demo_file, "wt") as demo_stream:
-        for _, code_point, input_string in ligatures:
-            demo_stream.write("{}: {}\n".format(hex(code_point), input_string))
-
-    # Add extra mappings from code points to glyphs in the relevant cmap variants.
+    # Add extra output_glyphs from code points to glyphs in the relevant cmap variants.
     for fmt in ["12", "4"]:
         for table in root.find("cmap").findall("cmap_format_" + fmt):
-            for glyph, code_point, _ in ligatures:
-                ET.SubElement(table, "map", dict(code=hex(code_point), name=glyph))
+            for g in output_glyphs:
+                ET.SubElement(table, "map", dict(code=hex(g.code_point), name=g.name))
 
     # Serialize the XML data and convert it to a font file.
     bio = io.BytesIO()
