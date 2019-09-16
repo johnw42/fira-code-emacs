@@ -10,7 +10,7 @@ EMACS_FONTS = \
 ZIP_FILE = FiraCode_2.zip
 URL = https://github.com/tonsky/FiraCode/releases/download/2/$(ZIP_FILE)
 
-all: $(EMACS_FONTS)
+all: $(EMACS_FONTS) fira-code-data.el
 
 clean:
 	rm -f $(ZIP_FILE) fontTools-stamp
@@ -18,6 +18,9 @@ clean:
 
 distclean:
 	rm -rf fira-code-data.el
+
+# Ugly hack.  Building any font also makes fira-code-data.el as a side-effect.
+fira-code-data.el: modified/FiraEmacs-Medium.otf
 
 modified/FiraEmacs-%.otf: original/otf/FiraCode-%.otf build_fira_emacs.py fontTools-stamp
 	mkdir -p modified
