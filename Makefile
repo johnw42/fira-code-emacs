@@ -31,6 +31,7 @@ $(ZIP_FILE):
 	curl -L -o $@ $(URL)
 
 original/otf/FiraCode-%.otf: $(ZIP_FILE)
-	unzip -f $(ZIP_FILE) otf/FiraCode-$*.otf -d original
+	mkdir -p original
+	unzip -u $(ZIP_FILE) otf/FiraCode-$*.otf -d original
 	touch $@
 
