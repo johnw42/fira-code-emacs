@@ -13,6 +13,18 @@
   (require 'cl))
 (require 'dash)
 
+(load "fira-code-data")
+
+(defconst fira-code--word-ligatures
+  (-keep
+   (-lambda ([glyph input-string])
+     (and (string-match-p "\\.liga$" glyph)
+          (string-match-p "^[[:alpha:]]+$" input-string)
+          input-string))
+   fira-code--data)
+  "List of ligatures that should be recognized when the occur
+within a word.")
+
 (defvar fira-code-enable-substitution-predicate
   'fira-code--default-enable-substitution-predicate
   "Predicate to decide whether to enable a substitution from
@@ -68,15 +80,37 @@ replaced with a glyph while `fira-code-mode' is active.  See also
 
 (defun fira-code--default-compose-predicate
     (start end input-string)  
-  (and
-   ;; Turn off composition in strings.
-   (not (nth 3 (syntax-ppss))) 
+  (condition-case nil
+      (and
+       ;; Turn off composition in strings.
+       (not (nth 3 (syntax-ppss)))
 
-   ;; Prevent ;;; from being partially composed.
-   (or (not (equal input-string ";;"))
-       (not (save-excursion
-              (goto-char start)
-              (looking-at ";;;"))))))
+       ;; Prevent portions of words from being transformed.  This can
+       ;; happen with, for example, the default transformations in
+       ;; python-mode, which replace "or" with "∨".  Without this
+       ;; check, "for" would be rendered as "f∨".  As a special case,
+       ;; input strings in fira-code--word-ligatures are allowed, since
+       ;; they are intended to appear as parts of words.
+       (or (not (string-match-p "^[[:alnum:]_]+$" input-string))
+           (member input-string fira-code--word-ligatures)
+           (condition-case nil
+               (and (not (string-match-p
+                          "[[:alnum:]_]"
+                          (buffer-substring (1- start) start)))
+                    (not (string-match-p
+                          "[[:alnum:]_]"
+                          (buffer-substring end (1+ end)))))
+             (args-out-of-range nil)))
+
+       ;; Prevent long sequences of repeating characters from being
+       ;; turned into a weird combination of ligatures, such as when a
+       ;; long line of = characters appears in a comment.
+       (condition-case nil
+           (not (or (equal input-string
+                           (buffer-substring (1- start) (1- end)))
+                    (equal input-string
+                           (buffer-substring (1+ start) (1+ end)))))
+         (args-out-of-range t)))))
 
 (defun fira-code--make-alist (list)
   "Generate prettify-symbols alist from LIST."
@@ -96,8 +130,6 @@ replaced with a glyph while `fira-code-mode' is active.  See also
                                 append '(?\s (Br . Bl)))
                        (list (aref output-string 0)))))))
    list))
-
-(load "fira-code-data")
 
 (defvar-local fira-code--old-prettify-alist nil)
 
@@ -120,7 +152,7 @@ replaced with a glyph while `fira-code-mode' is active.  See also
 
 (define-minor-mode fira-code-mode
   "Fira Code ligatures minor mode"
-  :lighter " æ"
+  :lighter "  "
   (setq-local prettify-symbols-unprettify-at-point 'right-edge)
   (if fira-code-mode
       (fira-code--enable)
