@@ -159,7 +159,7 @@
     ["greater_greater.liga" ">>" "\xe19c"]  ;   
     ["greater_greater_hyphen.liga" ">>-" "\xe19d"]  ;   
     ["greater_greater_equal.liga" ">>=" "\xe19e"]  ;   
-    ["greater_greater_greater.liga" ">>>" "\xe19fS"]  ;   
+    ["greater_greater_greater.liga" ">>>" "\xe19f"]  ;   
     ["question_period.liga" "?." "\xe1a0"]  ;   
     ["question_colon.liga" "?:" "\xe1a1"]  ;   
     ["question_equal.liga" "?=" "\xe1a2"]  ;   

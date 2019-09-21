@@ -18,7 +18,7 @@ class Glyph:
 
 
 def Main():
-    input_file, output_file, demo_file = sys.argv[1:]
+    input_file, output_file, el_file = sys.argv[1:]
     font = TTFont(input_file, lazy=False)
 
     # Rename the font.
@@ -79,7 +79,7 @@ def Main():
     # Echo the list of strings which can be pasted into fira-code.el to update it.
     fill_column = 70
     prefix = ""
-    with open("fira-code-data.el", "wt") as data_stream:
+    with open(el_file, "wt") as data_stream:
         data_stream.write(";; -*- coding: utf-8 -*-\n(defconst fira-code--data\n  '(")
         for g in output_glyphs:
             line = prefix + '[{} {} "\\{}"]  ;   {}'.format(
