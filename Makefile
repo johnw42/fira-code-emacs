@@ -12,9 +12,9 @@ FIRA_URL = https://github.com/tonsky/FiraCode/releases/download/2/$(ZIP_FILE)
 
 all: fira-all cascadia-all
 
-fira-all: $(FIRA_EMACS_FONTS)
+fira-all: $(FIRA_EMACS_FONTS) fira-code-data.el
 
-cascadia-all: modified/CascadiaEmacs.ttf
+cascadia-all: modified/CascadiaEmacs.ttf cascadia-code-data.el
 
 clean:
 	rm -f $(ZIP_FILE) fontTools-stamp
@@ -22,6 +22,9 @@ clean:
 
 distclean:
 	rm -rf *-code-data.el
+
+# Ugly hack.  Building any font also makes fira-code-data.el as a side-effect.
+fira-code-data.el: modified/FiraEmacs-Medium.otf
 
 modified/FiraEmacs-%.otf: original/otf/FiraCode-%.otf build_fira_emacs.py fontTools-stamp
 	mkdir -p modified
@@ -39,7 +42,8 @@ $(ZIP_FILE):
 	curl -L -o $@ $(FIRA_URL)
 
 original/otf/FiraCode-%.otf: $(ZIP_FILE)
-	unzip -f $(ZIP_FILE) otf/FiraCode-$*.otf -d original
+	mkdir -p original
+	unzip -u $(ZIP_FILE) otf/FiraCode-$*.otf -d original
 	touch $@
 
 original/Cascadia.ttf:
