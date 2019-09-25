@@ -25,6 +25,13 @@
   "List of ligatures that should be recognized when the occur
 within a word.")
 
+(defvar fira-code-math-symbol-modes '(haskell-mode))
+(defconst fira-code--math-symbols
+  '(">>="
+    "<<="
+    "|=")
+  "List of math symbols that clash with common operators.")
+
 (defvar fira-code-enable-substitution-predicate
   'fira-code--default-enable-substitution-predicate
   "Predicate to decide whether to enable a substitution from
@@ -58,21 +65,24 @@ replaced with a glyph while `fira-code-mode' is active.  See also
 (defun fira-code--default-enable-substitution-predicate
     (name input-string)
   (let ((default-enabled
-          (or
-           ;; Enable most ligatures.
-           (when (string-match-p ".*\\.liga$" name)
-             (not (member name '("less_equal.liga"
-                                 "greater_equal.liga"))))
+          (and
+           (or
+            ;; Enable most ligatures.
+            (when (string-match-p ".*\\.liga$" name)
+              (not (member name '("less_equal.liga"
+                                  "greater_equal.liga"))))
 
-           ;; Turn on certain alternative glyphs.
-           (member name '("at.ss06"
-                          "less_equal.ss02"
-                          "geter_equal.ss02")))))
+            ;; Turn on certain alternative glyphs.
+            (member name '("at.ss06"
+                           "less_equal.ss02"
+                           "geter_equal.ss02")))
+           (or (not (member input-string fira-code--math-symbols))
+               (-some 'derived-mode-p fira-code-math-symbol-modes)))))
     (cond
      ;; Haskell-specific settings:
      ((derived-mode-p 'haskell-mode)
-      (cl-case input-string
-        ("$" t)                         ; use alterantive $
+      (pcase input-string
+        ("$" t)                         ; use alternate $
         ("/=" "!=")                     ; "not equal" is /=
         ("!=" nil)                      ; != is not special
         (t default-enabled)))
@@ -116,6 +126,7 @@ replaced with a glyph while `fira-code-mode' is active.  See also
   "Generate prettify-symbols alist from LIST."
   (-keep
    (-lambda ([name input-string output-string])
+     (cl-assert (= 1 (length output-string)))
      (let ((pred-result
             (funcall fira-code-enable-substitution-predicate
                      name input-string)))
@@ -123,39 +134,45 @@ replaced with a glyph while `fira-code-mode' is active.  See also
          (when (stringp pred-result)
            (setq input-string pred-result))
          (cons input-string
-               (append '(?\s (Br . Br))
-                       (cl-loop for n
-                                from 2
-                                to (string-width input-string)
-                                append '(?\s (Br . Bl)))
-                       (list (aref output-string 0)))))))
+               (append
+                (apply 'append
+                       (-repeat (- (length input-string) 1)
+                                '(?\s (Br . Bl))))
+                (list ?\s '(Br . Br)
+                      (aref output-string 0)))))))
    list))
 
-(defvar-local fira-code--old-prettify-alist nil)
-
+(defvar-local fira-code--disable-funcs nil)
+;; 
 (defun fira-code--prettify-symbols-compose-predicate (start end input-string)
   (funcall fira-code-compose-predicate start end input-string))
-
-(defun fira-code--enable ()
-  "Enable Fira Code ligatures in current buffer."
-  (setq-local fira-code--old-prettify-alist prettify-symbols-alist)
-  (setq-local prettify-symbols-alist (append (fira-code--make-alist fira-code--data) fira-code--old-prettify-alist))
-  (setq-local prettify-symbols-compose-predicate
-              'fira-code--prettify-symbols-compose-predicate)
-  (prettify-symbols-mode t))
-
-(defun fira-code--disable ()
-  "Disable Fira Code ligatures in current buffer."
-  (setq-local prettify-symbols-alist fira-code--old-prettify-alist)
-  (kill-local-variable 'prettify-symbols-compose-predicate)
-  (prettify-symbols-mode -1))
 
 (define-minor-mode fira-code-mode
   "Fira Code ligatures minor mode"
   :lighter "  "
-  (setq-local prettify-symbols-unprettify-at-point 'right-edge)
-  (if fira-code-mode
-      (fira-code--enable)
-    (fira-code--disable)))
+  (cl-macrolet ((set-for-mode
+                 (var expr)
+                 `(progn
+                    (push
+                     (if (and (local-variable-if-set-p ',var)
+                              (not (local-variable-p ',var)))
+                         (lambda () (kill-local-variable ',var))
+                       (let ((old-val ,var))
+                         (lambda () (setq ,var old-val))))
+                     fira-code--disable-funcs)
+                    (setq ,var ,expr))))
+    (if fira-code-mode
+        (progn
+          (set-for-mode prettify-symbols-alist
+                        (nconc (fira-code--make-alist fira-code--data)
+                               prettify-symbols-alist))
+          (set-for-mode prettify-symbols-compose-predicate
+                        'fira-code--prettify-symbols-compose-predicate)
+          (unless prettify-symbols-mode
+            (prettify-symbols-mode)
+            (push (lambda () (prettify-symbols-mode 0))
+                  fira-code--disable-funcs)))
+      (while fira-code--disable-funcs
+        (funcall (pop fira-code--disable-funcs))))))
 
 (provide 'fira-code)
