@@ -30,7 +30,7 @@ modified/FiraEmacs-%.otf: original/otf/FiraCode-%.otf build_fira_emacs.py fontTo
 	mkdir -p modified
 	python3 build_fira_emacs.py $< $@ fira-code-data.el
 
-modified/CascadiaEmacs.ttf: original/Cascadia.ttf build_cascadia_emacs.py fontTools-stamp
+modified/CascadiaEmacs.ttf cascadia-code-data.el: original/Cascadia.ttf build_cascadia_emacs.py fontTools-stamp
 	mkdir -p modified
 	python3 build_cascadia_emacs.py $< $@ cascadia-code-data.el
 

@@ -8,7 +8,6 @@ import sys
 import xml.etree.ElementTree as ET
 
 INPUT_STRINGS = {
-    "glyph00054": "",
     "glyph00055": "!!",
     "glyph00076": "!!.",
     "glyph00077": "!=",
@@ -159,9 +158,7 @@ class Glyph:
 
 
 def Main():
-    input_file = "Cascadia.ttf"
-    output_file = "CascadiaEmacs.ttf"
-    el_file = "cascadia-emacs-data.el"
+    input_file, output_file, el_file = sys.argv[1:]
     font = TTFont(input_file, lazy=False)
 
     # Rename the font.
