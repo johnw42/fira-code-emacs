@@ -14,13 +14,16 @@
 (require 'dash)
 
 (defvar-local ligature-font-char-list nil)
-(defvar-local ligature-font-word-ligatures nil)
 
-(defvar ligature-font-math-symbol-modes '(haskell-mode))
+(defconst ligature-font--safe-ligatures
+  '("www" "Fl" "Tl" "fl")
+  "Ligatures that should always used regardless of context.")
+
+(defvar ligature-font-math-symbol-modes '(haskell-mode)
+  "List of modes where math symbol ligatures should be used.")
+
 (defconst ligature-font--math-symbols
-  '(">>="
-    "<<="
-    "|=")
+  '(">>=" "<<=" "|=")
   "List of math symbols that clash with common operators.")
 
 (defvar ligature-font-enable-substitution-predicate
@@ -61,12 +64,14 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
             ;; Enable most ligatures.
             (when (string-match-p ".*\\.liga$" name)
               (not (member name '("less_equal.liga"
-                                  "greater_equal.liga"))))
+                                  "greater_equal.liga"
+                                  ))))
 
             ;; Turn on certain alternative glyphs.
             (member name '("at.ss06"
                            "less_equal.ss02"
-                           "geter_equal.ss02")))
+                           "greater_equal.ss02"
+                           )))
            (or (not (member input-string ligature-font--math-symbols))
                (-some 'derived-mode-p ligature-font-math-symbol-modes)))))
     (cond
@@ -76,44 +81,64 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
         ("$" t)                         ; use alternate $
         ("/=" "!=")                     ; "not equal" is /=
         ("!=" nil)                      ; != is not special
-        (t default-enabled)))
+        (_ default-enabled)))
      (t default-enabled))))
 
 (defun ligature-font--default-compose-predicate
-    (start end input-string)  
-  (condition-case nil
-      (and
-       ;; Turn off composition in strings.
-       (not (nth 3 (syntax-ppss)))
+    (start end input-string)
+  (cl-macrolet
+      ((check-char-sequence
+        (char-regex)
+        `(or (not (string-match-p ,(concat "^" char-regex "+$")
+                                  input-string))
+             (and (or (<= start (point-min))
+                      (not (string-match-p
+                            ,char-regex
+                            (buffer-substring-no-properties
+                             (1- start)
+                             start))))
+                  (or (>= end (point-max))
+                      (not (string-match-p
+                            ,char-regex
+                            (buffer-substring-no-properties
+                             end
+                             (1+ end)))))))))
+    (or
+     ;; Always enable ligatures for input strings in ligature-font--safe-ligatures.
+     (member input-string ligature-font--safe-ligatures)
 
-       ;; Prevent portions of words from being transformed.  This can
-       ;; happen with, for example, the default transformations in
-       ;; python-mode, which replace "or" with "∨".  Without this
-       ;; check, "for" would be rendered as "f∨".  As a special case,
-       ;; input strings in ligature-font-word-ligatures are allowed, since
-       ;; they are intended to appear as parts of words.
-       (or (not (string-match-p "^[[:alnum:]_]+$" input-string))
-           (member input-string ligature-font-word-ligatures)
-           (condition-case nil
-               (and (not (string-match-p
-                          "[[:alnum:]_]"
-                          (buffer-substring (1- start) start)))
-                    (not (string-match-p
-                          "[[:alnum:]_]"
-                          (buffer-substring end (1+ end)))))
-             (args-out-of-range nil)))
+     (and
+      ;; Prevent composition in strings.
+      (not (nth 3 (syntax-ppss)))
 
-       ;; Prevent long sequences of repeating characters from being
-       ;; turned into a weird combination of ligatures, such as when a
-       ;; long line of = characters appears in a comment.
-       (not (or (and
-                 (> start (point-min))
-                 (equal input-string
-                        (buffer-substring (1- start) (1- end))))
-                (and
-                 (< end (point-max))
-                 (equal input-string
-                        (buffer-substring (1+ start) (1+ end)))))))))
+      ;; Prevent words in comments from being converted to symbols.
+      (or (not (nth 4 (syntax-ppss)))
+          (not (string-match-p "^[[:alnum:]_]+$" input-string)))
+
+      ;; Prevent portions of words from being transformed.  This can
+      ;; happen with, for example, the default transformations in
+      ;; python-mode, which replace "or" with "∨".  Without this
+      ;; check, "for" would be rendered as "f∨".  As a special case,
+      ;; input strings in ligature-font-word-ligatures are allowed, since
+      ;; they are intended to appear as parts of words.
+      (check-char-sequence "[[:alnum:]_]")
+
+      ;; Prevent parts of puncutation sequences from being turned into
+      ;; ligatures.  This typically happens when a long sequence of
+      ;; repeating characters is used as a "page break" in a comment.
+      (check-char-sequence "[[:punct:]]")))))
+
+;; Compile ligature-font--default-compose-predicate because contains macro calls
+;; and it is executed a lot.
+(byte-compile 'ligature-font--default-compose-predicate)
+
+(defun ligature-font--make-composition (input-string output-char)
+  (cons input-string
+        (append
+         (apply 'append
+                (-repeat (- (length input-string) 1)
+                         '(?\s (Br . Bl))))
+         (list ?\s '(Br . Br) output-char))))
 
 (defun ligature-font--make-alist (list)
   "Generate prettify-symbols alist from LIST."
@@ -126,49 +151,85 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
        (when pred-result
          (when (stringp pred-result)
            (setq input-string pred-result))
-         (cons input-string
-               (append
-                (apply 'append
-                       (-repeat (- (length input-string) 1)
-                                '(?\s (Br . Bl))))
-                (list ?\s '(Br . Br)
-                      (aref output-string 0)))))))
+         (ligature-font--make-composition input-string
+                             (aref output-string 0)))))
    list))
 
 (defun ligature-font--prettify-symbols-compose-predicate (start end input-string)
   (funcall ligature-font-compose-predicate start end input-string))
 
-(defvar-local ligature-font--disable-funcs nil)
+(defun ligature-font--and-or-hack (alist)
+  "If ALIST maps \"and\" and \"or\" to ∧ and ∨, and we have
+ligatures for /\\ and \\/, use the ligatures instead."
+  (or
+   (-when-let* ((big-and (cdr (assoc "/\\" alist)))
+                (big-or (cdr (assoc "\\/" alist)))
+                (small-and (cdr (assoc "and" alist)))
+                (small-or (cdr (assoc "or" alist))))
+     (when t (and (equal ?∧ small-and)
+                  (equal ?∨ small-or))
+           (-cons*
+            ;; Build a composition rule that centers the "and"
+            ;; ligature in the middle of three columns, assuming the
+            ;; ligature itself uses two columns.
+            `("and" ?\s (Br . Bl) ?\s (Br . Bc)
+              ,(-last-item big-and) (Br . Bc) ?\s)
+            ;; The "or" ligature uses the same amount of space as the
+            ;; word "or", so we don’t need to do anything special.
+            (cons "or" big-or)
+            (--remove (member (car it) '("and" "or"))
+                      alist))))
+   alist))
 
-(defmacro ligature-font--set-with-restore (var expr)
-  (let ((temp-var (cl-gensym (format "old-%s" var))))
-    `(prog1
-         (if (and (local-variable-if-set-p ',var)
-                  (not (local-variable-p ',var)))
-             (lambda () (kill-local-variable ',var))
-           (let ((,temp-var ,var))
-             (lambda () (setq ,var ,temp-var))))
-       (setq ,var ,expr))))
+(defun ligature-font--restore-func (var)
+  (let ((old-val (symbol-value var)))
+    (if (and (local-variable-if-set-p var)
+             (not (local-variable-p var)))
+        (lambda () (kill-local-variable var))
+      (lambda () (set var old-val)))))
+
+(defmacro ligature-font--set-or-restore (cond-expr restore-funcs-var
+                                      &rest clauses)
+  (declare (indent 2))
+  (let* ((clauses (--map (if (symbolp it) (list it)
+                           (cl-assert (<= 1 (length it) 2))
+                           it)
+                         clauses))
+         (set-exprs
+          (--map
+           (let* ((var (car it))
+                  (value-exprs (cdr it))
+                  (save-expr
+                   `(push (chromium--restore-func ',var)
+                          ,restore-funcs-var)))
+             (if value-exprs
+                 `(progn ,save-expr
+                         (setq ,var ,(car value-exprs)))
+               save-expr))
+           clauses)))
+    `(if ,cond-expr
+         (progn ,@set-exprs)
+       (while ,restore-funcs-var
+         (funcall (pop ,restore-funcs-var))))))
+
+(defvar-local ligature-font--disable-funcs nil)
 
 (define-minor-mode ligature-font-mode
   "Fira Code ligatures minor mode"
   :lighter "  "
-  (if ligature-font-mode
-      (progn
-        (push (ligature-font--set-with-restore
-               prettify-symbols-alist
-               (nconc (ligature-font--make-alist ligature-font-char-list)
-                      prettify-symbols-alist))
-              ligature-font--disable-funcs)
-        (push (ligature-font--set-with-restore
-               prettify-symbols-compose-predicate
-               'ligature-font--prettify-symbols-compose-predicate)
-              ligature-font--disable-funcs)
-        (unless prettify-symbols-mode
-          (push (lambda () (prettify-symbols-mode 0))
-                ligature-font--disable-funcs))
-        (prettify-symbols-mode))
-    (while ligature-font--disable-funcs
-      (funcall (pop ligature-font--disable-funcs)))))
+  (ligature-font--set-or-restore ligature-font-mode ligature-font--disable-funcs
+    (prettify-symbols-unprettify-at-point
+     (or prettify-symbols-unprettify-at-point t))
+    (prettify-symbols-alist
+     (ligature-font--and-or-hack
+      (nconc (ligature-font--make-alist ligature-font-char-list)
+             prettify-symbols-alist)))
+    (prettify-symbols-compose-predicate
+     'ligature-font--prettify-symbols-compose-predicate))
+  (when ligature-font-mode
+    (unless prettify-symbols-mode
+      (push (lambda () (prettify-symbols-mode 0))
+            ligature-font--disable-funcs))
+    (prettify-symbols-mode)))
 
 (provide 'ligature-font)
