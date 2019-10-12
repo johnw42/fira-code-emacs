@@ -10,10 +10,143 @@
 ;;; Code:
 
 (eval-when-compile
-  (require 'cl))
+  (require 'cl-macs))
+(require 'cl-lib)
 (require 'dash)
+(require 's)
 
 (defvar-local ligature-font-char-list nil)
+
+(defcustom ligature-font-alternatives
+  '((haskell-mode
+     "dollar.ss05"
+     ("/=" . nil)
+     ("!=" . "/=")
+     ("/==" . nil)
+     ("!==" . "/=="))
+    (t
+     "at.ss06"
+     "less_equal.ss02"
+     "greater_equal.ss02"))
+  "TODO"
+  :group 'ligature-font
+  :type '(repeat
+          (cons
+           (choice
+            (const :tag "Any mode" t)
+            (symbol :tag "Major mode" :value prog-mode))
+           (repeat
+            (cons
+             (string :tag "Input or glyph")
+             (choice
+              (const :tag "Disable" nil)
+              (string :tag "Input or glyph")))))))
+
+(cl-defstruct (ligature-font--glyph (:constructor ligature-font--make-glyph))
+  name chars-in chars-out)
+
+(cl-defstruct (ligature-font--alternative (:constructor ligature-font--make-alternative))
+  glyph-in chars-in glyph-out chars-out)
+
+(defun ligature-font--alternatives ()
+  (let*
+      ((alts
+        ;; Find transformations relevant to the current mode.
+        (-mapcat (-lambda ((mode . alts))
+                   (if (or (eq t mode)
+                           (derived-mode-p mode))
+                       alts
+                     nil))
+                 ligature-font-alternatives))
+
+       ;; Convert glyph data to struct form.
+       (glyphs
+        (-map (-lambda ([name chars-in chars-out])
+                (ligature-font--make-glyph
+                 :name name
+                 :chars-in chars-in
+                 :chars-out chars-out))
+              ligature-font-char-list))
+
+       ;; Apply user-defined tranformations to the glyph list.
+       (glyphs
+        (-reduce-from
+         (lambda (glyphs alt)
+           (pcase alt
+             ;; Remove glyphs where an alternate glyph is
+             ;; requested for the same input sequence.
+             ((and (pred stringp)
+                   (let to-keep
+                     (-find (lambda (glyph)
+                              (equal alt (ligature-font--glyph-name glyph)))
+                            glyphs))
+                   (guard to-keep))
+              (-remove
+               (lambda (glyph)
+                 (and (equal (ligature-font--glyph-chars-in to-keep)
+                             (ligature-font--glyph-chars-in glyph))
+                      (not (equal alt
+                                  (ligature-font--glyph-name glyph)))))
+               glyphs))
+             ((pred stringp)
+              (warn "No glyph named %S" alt))
+             ;; Remove glyphs whose name or input sequence is
+             ;; mapped to nil.
+             (`(,lhs . nil)
+              (-remove
+               (lambda (glyph)
+                 (or (equal (ligature-font--glyph-chars-in glyph)
+                            lhs)
+                     (equal (ligature-font--glyph-name glyph)
+                            lhs)))
+               glyphs)
+              )
+             (`(,lhs . ,rhs)
+              (-each glyphs
+                (lambda (glyph)
+                  (cond
+                   ((equal (ligature-font--glyph-chars-in glyph)
+                           lhs)
+                    (setf (ligature-font--glyph-chars-in glyph)
+                          rhs))
+                   ((equal (ligature-font--glyph-name glyph)
+                           lhs)
+                    (setq (ligature-font--glyph-name glyph)
+                          rhs)))))
+              glyphs)))
+         glyphs alts))
+
+       ;; Remove single-character glyphs that were not specifically
+       ;; requested.
+       (glyphs
+        (-filter (lambda (glyph)
+                   (or (< 1 (length (ligature-font--glyph-chars-in glyph)))
+                       (member (ligature-font--glyph-name glyph) alts)))
+                 glyphs))
+
+       ;; Sort glyphs so when that default ligatures appear first in
+       ;; the list.
+       (glyphs
+        (cl-sort
+         glyphs #'<
+         :key (lambda (glyph)
+                (if (s-ends-with? ".liga"
+                                  (ligature-font--glyph-name glyph))
+                    0
+                  1))))
+
+       ;; Filter glyphs so there is only one for each input sequence.
+       (glyphs
+        (cdr
+         (-reduce-from
+          (-lambda ((seen . glyphs) glyph)
+            (let ((chars-in (ligature-font--glyph-chars-in glyph)))
+              (if (member chars-in seen)
+                  (cons seen glyphs)
+                (cons (cons chars-in seen)
+                      (cons glyph glyphs)))))
+          (cons nil nil) glyphs))))
+    glyphs))
 
 (defconst ligature-font--safe-ligatures
   '("www" "Fl" "Tl" "fl")
@@ -58,31 +191,8 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
 
 (defun ligature-font--default-enable-substitution-predicate
     (name input-string)
-  (let ((default-enabled
-          (and
-           (or
-            ;; Enable most ligatures.
-            (when (string-match-p ".*\\.liga$" name)
-              (not (member name '("less_equal.liga"
-                                  "greater_equal.liga"
-                                  ))))
-
-            ;; Turn on certain alternative glyphs.
-            (member name '("at.ss06"
-                           "less_equal.ss02"
-                           "greater_equal.ss02"
-                           )))
-           (or (not (member input-string ligature-font--math-symbols))
-               (-some 'derived-mode-p ligature-font-math-symbol-modes)))))
-    (cond
-     ;; Haskell-specific settings:
-     ((derived-mode-p 'haskell-mode)
-      (pcase input-string
-        ("$" t)                         ; use alternate $
-        ("/=" "!=")                     ; "not equal" is /=
-        ("!=" nil)                      ; != is not special
-        (_ default-enabled)))
-     (t default-enabled))))
+  (or (not (member input-string ligature-font--math-symbols))
+      (-some 'derived-mode-p ligature-font-math-symbol-modes)))
 
 (defun ligature-font--default-compose-predicate
     (start end input-string)
@@ -126,7 +236,11 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
       ;; Prevent parts of puncutation sequences from being turned into
       ;; ligatures.  This typically happens when a long sequence of
       ;; repeating characters is used as a "page break" in a comment.
-      (check-char-sequence "[[:punct:]]")))))
+      ;;
+      ;; The regex includes all ASCII punctuation characters except
+      ;; for brackets.  Brackets are omitted so expressions like
+      ;; (<= x y) are handled correctly.
+      (check-char-sequence "[-!\"#$%&'*+,./:;<=>?@\\^|~]")))))
 
 ;; Compile ligature-font--default-compose-predicate because contains macro calls
 ;; and it is executed a lot.
@@ -140,20 +254,18 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
                          '(?\s (Br . Bl))))
          (list ?\s '(Br . Br) output-char))))
 
-(defun ligature-font--make-alist (list)
-  "Generate prettify-symbols alist from LIST."
-  (-keep
-   (-lambda ([name input-string output-string])
-     (cl-assert (= 1 (length output-string)))
-     (let ((pred-result
-            (funcall ligature-font-enable-substitution-predicate
-                     name input-string)))
-       (when pred-result
-         (when (stringp pred-result)
-           (setq input-string pred-result))
-         (ligature-font--make-composition input-string
-                             (aref output-string 0)))))
-   list))
+(defun ligature-font--make-alist ()
+  "Generate prettify-symbols alist."
+  (-map (lambda (glyph)
+          (-when-let (pred-result ligature-font-enable-substitution-predicate
+                                  (ligature-font--glyph-name glyph)
+                                  (ligature-font--glyph-chars-in glyph))
+            (ligature-font--make-composition
+             (if (stringp pred-result)
+                 pred-result
+               (ligature-font--glyph-chars-in glyph))
+             (aref (ligature-font--glyph-chars-out glyph) 0))))
+        (ligature-font--alternatives)))
 
 (defun ligature-font--prettify-symbols-compose-predicate (start end input-string)
   (funcall ligature-font-compose-predicate start end input-string))
@@ -200,7 +312,7 @@ ligatures for /\\ and \\/, use the ligatures instead."
            (let* ((var (car it))
                   (value-exprs (cdr it))
                   (save-expr
-                   `(push (chromium--restore-func ',var)
+                   `(push (ligature-font--restore-func ',var)
                           ,restore-funcs-var)))
              (if value-exprs
                  `(progn ,save-expr
@@ -222,7 +334,7 @@ ligatures for /\\ and \\/, use the ligatures instead."
      (or prettify-symbols-unprettify-at-point t))
     (prettify-symbols-alist
      (ligature-font--and-or-hack
-      (nconc (ligature-font--make-alist ligature-font-char-list)
+      (nconc (ligature-font--make-alist)
              prettify-symbols-alist)))
     (prettify-symbols-compose-predicate
      'ligature-font--prettify-symbols-compose-predicate))
