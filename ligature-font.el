@@ -156,8 +156,9 @@
   "List of modes where math symbol ligatures should be used.")
 
 (defconst ligature-font--math-symbols
-  '(">>=" "<<=" "|=")
-  "List of math symbols that clash with common operators.")
+  '(">>=" "<<=" "|=" "<-" "<>")
+  "List of math symbols that clash with common character
+sequences in C-like languages.")
 
 (defvar ligature-font-enable-substitution-predicate
   'ligature-font--default-enable-substitution-predicate
@@ -257,9 +258,9 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
 (defun ligature-font--make-alist ()
   "Generate prettify-symbols alist."
   (-map (lambda (glyph)
-          (-when-let (pred-result ligature-font-enable-substitution-predicate
-                                  (ligature-font--glyph-name glyph)
-                                  (ligature-font--glyph-chars-in glyph))
+          (-when-let (pred-result (funcall ligature-font-enable-substitution-predicate
+                                           (ligature-font--glyph-name glyph)
+                                           (ligature-font--glyph-chars-in glyph)))
             (ligature-font--make-composition
              (if (stringp pred-result)
                  pred-result
