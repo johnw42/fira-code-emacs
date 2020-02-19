@@ -80,11 +80,54 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
      (t default-enabled))))
 
 (defun ligature-font--default-compose-predicate
-    (start end input-string)  
-  (condition-case nil
+    (start end input-string)
+  ;; This function is called thousands for times for every screen
+  ;; update, so it needs to be very fast.  It uses to main
+  ;; optimizations to achieve that goal:
+  ;;
+  ;; - It uses ‘string-match’ rather than than ‘looking-at’, because
+  ;;   moving the cursor around is slow.
+  ;;
+  ;; - Rather than calling ‘syntax-ppss’ to look for commments and
+  ;;   strings, it looks for font properties previously set by
+  ;;   font-lock mode.
+  ;;
+  ;; It also contains some questionable optimizations:
+  ;;
+  ;; - It’s always byte-compiled.
+  ;;
+  ;; - It sets ‘inhibit-changing-match-data’ and calls ‘string-match’
+  ;;   rather than calling ‘string-match-p’.
+  (let* ((font-prop (get-text-property start 'face))
+         (in-string (eq font-prop 'font-lock-string-face))
+         (in-comment (memq font-prop '(font-lock-comment-face
+                                       font-lock-doc-face)))
+         (char-before
+          (if (> start (point-min))
+              (buffer-substring-no-properties (1- start) start)
+            ""))
+         (char-after
+          (if (< end (point-max))
+              (buffer-substring-no-properties end (1+ end))
+            ""))
+         (inhibit-changing-match-data t))
+    (cl-macrolet
+        ((check-char-sequence
+          (char-regex)
+          `(or (not (string-match ,char-regex
+                                  input-string))
+               (and (not (string-match ,char-regex
+                                       char-before))
+                    (not (string-match ,char-regex
+                                       char-after))))))
+
       (and
-       ;; Turn off composition in strings.
-       (not (nth 3 (syntax-ppss)))
+       ;; Prevent composition in strings.
+       (not in-string)
+
+       ;; Prevent words in comments from being converted to symbols.
+       (not (and in-comment
+                 (string-match "^[[:alnum:]_]+$" input-string)))
 
        ;; Prevent portions of words from being transformed.  This can
        ;; happen with, for example, the default transformations in
@@ -92,28 +135,16 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
        ;; check, "for" would be rendered as "f∨".  As a special case,
        ;; input strings in ligature-font-word-ligatures are allowed, since
        ;; they are intended to appear as parts of words.
-       (or (not (string-match-p "^[[:alnum:]_]+$" input-string))
-           (member input-string ligature-font-word-ligatures)
-           (condition-case nil
-               (and (not (string-match-p
-                          "[[:alnum:]_]"
-                          (buffer-substring (1- start) start)))
-                    (not (string-match-p
-                          "[[:alnum:]_]"
-                          (buffer-substring end (1+ end)))))
-             (args-out-of-range nil)))
+       (check-char-sequence "[[:alnum:]_]")
 
-       ;; Prevent long sequences of repeating characters from being
-       ;; turned into a weird combination of ligatures, such as when a
-       ;; long line of = characters appears in a comment.
-       (not (or (and
-                 (> start (point-min))
-                 (equal input-string
-                        (buffer-substring (1- start) (1- end))))
-                (and
-                 (< end (point-max))
-                 (equal input-string
-                        (buffer-substring (1+ start) (1+ end)))))))))
+       ;; Prevent parts of puncutation sequences from being turned into
+       ;; ligatures.  This typically happens when a long sequence of
+       ;; repeating characters is used as a "page break" in a comment.
+       ;;
+       ;; The regex includes all ASCII punctuation characters except
+       ;; for brackets.  Brackets are omitted so expressions like
+       ;; (<= x y) are handled correctly.
+       (check-char-sequence "[-!\"#$%&'*+,./:;<=>?@\\^|~]")))))
 
 (defun ligature-font--make-alist (list)
   "Generate prettify-symbols alist from LIST."
@@ -136,7 +167,11 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
    list))
 
 (defun ligature-font--prettify-symbols-compose-predicate (start end input-string)
-  (funcall ligature-font-compose-predicate start end input-string))
+  ;; This function gets called a lot with the empty string as an
+  ;; argument, so we check for that case first and immediately return
+  ;; nil as an optimization.
+  (and (not (string= input-string ""))
+       (funcall ligature-font-compose-predicate start end input-string)))
 
 (defvar-local ligature-font--disable-funcs nil)
 
