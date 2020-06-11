@@ -7,10 +7,12 @@ FIRA_EMACS_FONTS = \
 	modified/FiraEmacs-Medium.ttf \
 	modified/FiraEmacs-Retina.ttf
 
-ZIP_FILE = Fira_Code_v5.zip
-FIRA_URL = https://github.com/tonsky/FiraCode/releases/download/5/$(ZIP_FILE)
-CASCADIA_ZIP = CascadiaCode_2005.15.zip
-CASCADIA_URL = https://github.com/microsoft/cascadia-code/releases/download/v2005.15/$(CASCADIA_ZIP)
+FIRA_VERSION = 5.1
+ZIP_FILE = Fira_Code_v$(FIRA_VERSION).zip
+FIRA_URL = https://github.com/tonsky/FiraCode/releases/download/$(FIRA_VERSION)/$(ZIP_FILE)
+CASCADIA_VERSION = 2005.15
+CASCADIA_ZIP = CascadiaCode_$(CASCADIA_VERSION).zip
+CASCADIA_URL = https://github.com/microsoft/cascadia-code/releases/download/v$(CASCADIA_VERSION)/$(CASCADIA_ZIP)
 
 all: fira-all cascadia-all
 
