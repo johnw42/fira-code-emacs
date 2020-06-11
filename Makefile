@@ -1,14 +1,18 @@
 # Modified font files.  Copy these into your ~/.fonts directory and
 # choose one as your default Emacs font.
 FIRA_EMACS_FONTS = \
-	modified/FiraEmacs-Light.otf \
-	modified/FiraEmacs-Regular.otf \
-	modified/FiraEmacs-Bold.otf \
-	modified/FiraEmacs-Medium.otf \
-	modified/FiraEmacs-Retina.otf	
+	modified/FiraEmacs-Light.ttf \
+	modified/FiraEmacs-Regular.ttf \
+	modified/FiraEmacs-Bold.ttf \
+	modified/FiraEmacs-Medium.ttf \
+	modified/FiraEmacs-Retina.ttf
 
-ZIP_FILE = FiraCode_2.zip
-FIRA_URL = https://github.com/tonsky/FiraCode/releases/download/2/$(ZIP_FILE)
+FIRA_VERSION = 5.1
+ZIP_FILE = Fira_Code_v$(FIRA_VERSION).zip
+FIRA_URL = https://github.com/tonsky/FiraCode/releases/download/$(FIRA_VERSION)/$(ZIP_FILE)
+CASCADIA_VERSION = 2005.15
+CASCADIA_ZIP = CascadiaCode_$(CASCADIA_VERSION).zip
+CASCADIA_URL = https://github.com/microsoft/cascadia-code/releases/download/v$(CASCADIA_VERSION)/$(CASCADIA_ZIP)
 
 all: fira-all cascadia-all
 
@@ -17,20 +21,20 @@ fira-all: $(FIRA_EMACS_FONTS) fira-code-data.el
 cascadia-all: modified/CascadiaEmacs.ttf cascadia-code-data.el
 
 clean:
-	rm -f $(ZIP_FILE) fontTools-stamp
+	rm -f $(ZIP_FILE) fontTools-stamp $(CASCADIA_ZIP)
 	rm -rf original modified
 
 distclean:
 	rm -rf *-code-data.el
 
 # Ugly hack.  Building any font also makes fira-code-data.el as a side-effect.
-fira-code-data.el: modified/FiraEmacs-Medium.otf
+fira-code-data.el: modified/FiraEmacs-Medium.ttf
 
-modified/FiraEmacs-%.otf: original/otf/FiraCode-%.otf build_fira_emacs.py fontTools-stamp
+modified/FiraEmacs-%.ttf: original/ttf/FiraCode-%.ttf build_fira_emacs.py fontTools-stamp
 	mkdir -p modified
 	python3 build_fira_emacs.py $< $@ fira-code-data.el
 
-modified/CascadiaEmacs.ttf cascadia-code-data.el: original/Cascadia.ttf build_cascadia_emacs.py fontTools-stamp
+modified/CascadiaEmacs.ttf cascadia-code-data.el: original/CascadiaCode.ttf build_cascadia_emacs.py fontTools-stamp
 	mkdir -p modified
 	python3 build_cascadia_emacs.py $< $@ cascadia-code-data.el
 
@@ -41,11 +45,17 @@ fontTools-stamp:
 $(ZIP_FILE):
 	curl -L -o $@ $(FIRA_URL)
 
-original/otf/FiraCode-%.otf: $(ZIP_FILE)
+original/ttf/FiraCode-%.ttf: $(ZIP_FILE)
 	mkdir -p original
-	unzip -u $(ZIP_FILE) otf/FiraCode-$*.otf -d original
+	unzip -u $(ZIP_FILE) ttf/FiraCode-$*.ttf -d original
 	touch $@
 
-original/Cascadia.ttf:
+original/CascadiaCode.ttf: $(CASCADIA_ZIP)
 	mkdir -p original
-	curl -L -o $@ https://github.com/microsoft/cascadia-code/releases/download/v1909.16/Cascadia.ttf
+	cd original \
+		&& unzip -u ../$(CASCADIA_ZIP) ttf/CascadiaCode.ttf \
+		&& mv ttf/CascadiaCode.ttf . \
+		&& rmdir --ignore-fail-on-non-empty ttf
+
+$(CASCADIA_ZIP):
+	curl -L -o $@ $(CASCADIA_URL)
