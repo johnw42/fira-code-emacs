@@ -66,7 +66,7 @@ replaced with a glyph while `ligature-font-mode' is active.  See also
             ;; Turn on certain alternative glyphs.
             (member name '("at.ss06"
                            "less_equal.ss02"
-                           "geter_equal.ss02")))
+                           "greater_equal.ss02")))
            (or (not (member input-string ligature-font--math-symbols))
                (-some 'derived-mode-p ligature-font-math-symbol-modes)))))
     (cond
